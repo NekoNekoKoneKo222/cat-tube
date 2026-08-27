@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0f0f0f">
+  <title>Cat Tube</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><span class="logo-cat">🐱</span><span>Cat Tube</span></a>
+  <form id="searchForm" class="searchbar"><input id="searchInput" placeholder="検索" autocomplete="off"><button aria-label="検索">⌕</button></form>
+  <div class="top-actions"><a class="icon-btn" href="#/library" title="ライブラリ">▱</a><div id="authArea"></div></div>
+</header>
+<div class="app-shell">
+  <aside class="sidebar">
+    <nav>
+      <a href="#/" class="nav-item">⌂ <span>ホーム</span></a>
+      <a href="#/subscriptions" class="nav-item">◉ <span>登録チャンネル</span></a>
+      <a href="#/library" class="nav-item">▣ <span>ライブラリ</span></a>
+      <a href="#/playlists" class="nav-item">≡ <span>プレイリスト</span></a>
+    </nav>
+    <div class="side-note">Cat Tube は YouTube Data API と公式埋め込みを中心に、必要な場合だけサーバー側の動画ストリームを利用します。</div>
+  </aside>
+  <main id="app" class="content"></main>
+</div>
+<div id="toast" class="toast"></div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
