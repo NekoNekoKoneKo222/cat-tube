@@ -1,5 +1,5 @@
 {
-  "name": "cat-tube",
+  "name": "cloud-cat",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -7,11 +7,12 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "dotenv": "^17.2.1",
+    "bcryptjs": "^3.0.2",
+    "connect-pg-simple": "^10.0.0",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
-    "googleapis": "^156.0.0",
-    "helmet": "^8.1.0",
-    "morgan": "^1.10.0"
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "socket.io": "^4.8.1"
   }
 }
