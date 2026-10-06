@@ -1,18 +1,8 @@
 {
-  "name": "cloud-cat",
-  "version": "1.0.0",
+  "name": "cat-tube",
+  "version": "2.0.0",
   "private": true,
-  "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
-  "dependencies": {
-    "bcryptjs": "^3.0.2",
-    "connect-pg-simple": "^10.0.0",
-    "express": "^5.1.0",
-    "express-session": "^1.18.2",
-    "multer": "^2.0.2",
-    "pg": "^8.16.3",
-    "socket.io": "^4.8.1"
-  }
+  "scripts": { "start": "node server.js", "test": "node --test" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "express": "^4.21.2", "helmet": "^8.0.0" }
 }
