@@ -69,7 +69,7 @@
       '<h1 class="watch-title">'+esc(v.title)+'</h1><div class="watch-actions"><div class="watch-channel"><span class="channel-avatar">CT</span><div>'+
       (cid?'<a class="watch-author" href="#/channel/'+cid+'">'+esc(v.author)+'</a>':'<strong>'+esc(v.author)+'</strong>')+
       '<small>'+ (v.subCount?num(v.subCount)+' 人の登録者':'クリエイター')+'</small></div></div>'+
-      '<button class="primary-button" data-action="favorite">'+(isFavorite(id)?'保存済み 保存済み':'保存 お気に入り')+'</button></div>'+
+      '<button class="primary-button" data-action="favorite">'+(isFavorite(id)?'保存済み':'お気に入りに保存')+'</button></div>'+
       '<div class="description-box"><strong>'+num(v.viewCount)+' 回視聴 · '+esc(ago(v.published))+'</strong><p>'+esc(String(v.description||'').slice(0,1600))+'</p></div>'+
       '<p class="watch-note">再生されない場合は「別サーバーで再生」を押してください。<a id="externalPlayer" href="'+esc(embedUrl())+'" target="_blank" rel="noopener noreferrer">Invidious で開く </a></p></section>'+
       '<aside class="watch-aside"><div class="aside-title"><span class="eyebrow">UP NEXT</span><h2>次に見る動画</h2></div>'+
@@ -86,14 +86,14 @@
   function library(kind){
     ++epoch;const name=kind==='history'?'history':'favorites';nav(name);const items=store(name);
     app.innerHTML=heading('YOUR SPACE',name==='history'?'視聴履歴':'お気に入り',items.length+' 本 · このブラウザに保存')+
-    '<div class="category-row"><a class="category-pill '+(name==='favorites'?'selected':'')+'" href="#/library/favorites">保存 お気に入り</a><a class="category-pill '+(name==='history'?'selected':'')+'" href="#/library/history">履歴 視聴履歴</a>'+
+    '<div class="category-row"><a class="category-pill '+(name==='favorites'?'selected':'')+'" href="#/library/favorites">お気に入りに保存</a><a class="category-pill '+(name==='history'?'selected':'')+'" href="#/library/history">履歴 視聴履歴</a>'+
     (items.length?'<button class="outline-button" data-list="'+name+'" data-action="clear">すべて削除</button>':'')+'</div>'+
     (items.length?grid(items):empty('まだ動画がありません',name==='history'?'動画を再生すると履歴が残ります':'動画ページでハートを押すと保存されます'));
   }
   function servers(){
     ++epoch;nav('');app.innerHTML=heading('SYSTEM STATUS','サーバーステータス','直近の応答速度と稼働状況')+
     '<div class="server-explanation"><span></span><div><strong>FASTEST RESPONSE WINS</strong><p>複数サーバーに同時リクエストし、最も早く有効な応答を返したサーバーを利用します。失敗時は一時的に候補から外します。</p></div></div>'+
-    '<div class="category-row"><button class="outline-button" data-action="refresh">状態を更新 再試行</button></div>'+
+    '<div class="category-row"><button class="outline-button" data-action="refresh">状態を更新</button></div>'+
     '<div class="server-grid">'+lastStatus.map(s=>'<article class="server-card"><span class="status-dot '+(s.apiStatus==='ok'?'good':'bad')+'"></span><h3>'+esc(new URL(s.url).host)+'</h3><p>API: '+(s.apiStatus==='ok'?'利用可能':s.apiStatus==='unchecked'?'未検査':'利用不可')+' / Web: '+(s.websiteStatus==='ok'?'応答あり':s.websiteStatus==='unchecked'?'未検査':'接続失敗')+'</p><strong>'+(s.latencyMs==null?'未測定':s.latencyMs+'ms')+'</strong><p>'+esc(s.lastError||'')+(s.httpStatus?' (HTTP '+s.httpStatus+')':'')+'</p><p>Web 応答: '+(s.websiteLatencyMs==null?'未測定':s.websiteLatencyMs+'ms')+'</p></article>').join('')+'</div>';
   }
   async function updateStatus(){serverLabel.textContent='API 接続を診断中';try{const r=await api('/api/instances?refresh=1');lastStatus=r.instances||[];if(!selectedServer){const ok=lastStatus.filter(s=>s.apiStatus==='ok').length;serverLabel.textContent=ok?ok+' 台の API が利用可能':'API 利用不可 · '+lastStatus.length+' 台を検査';}}catch(e){serverLabel.textContent='サーバー診断エラー';toast(e.message);}}
@@ -117,7 +117,7 @@
     if(el.dataset.mode&&activeVideo){playerMode=el.dataset.mode;updatePlayer();return;}
     if(el.dataset.action==='retry')route();
     if(el.dataset.action==='next-server'&&videoServers.length){const i=videoServers.indexOf(selectedServer);selectedServer=videoServers[(i+1)%videoServers.length];playerMode='embed';updatePlayer();toast('接続先: '+new URL(selectedServer).host);}
-    if(el.dataset.action==='favorite'&&activeVideo){const items=store('favorites'),id=activeVideo.videoId,exists=isFavorite(id);save('favorites',exists?items.filter(x=>x.videoId!==id):[rec(activeVideo),...items].slice(0,200));el.textContent=exists?'保存 お気に入り':'保存済み 保存済み';toast(exists?'削除しました':'お気に入りに追加しました');}
+    if(el.dataset.action==='favorite'&&activeVideo){const items=store('favorites'),id=activeVideo.videoId,exists=isFavorite(id);save('favorites',exists?items.filter(x=>x.videoId!==id):[rec(activeVideo),...items].slice(0,200));el.textContent=exists?'お気に入りに保存':'保存済み';toast(exists?'削除しました':'お気に入りに追加しました');}
     if(el.dataset.action==='clear'){if(confirm('保存された一覧を削除しますか？')){save(el.dataset.list,[]);library(el.dataset.list);}}
     if(el.dataset.action==='refresh')updateStatus().then(servers);
   });
