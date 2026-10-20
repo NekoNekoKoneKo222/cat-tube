@@ -25,7 +25,7 @@ const watchHTML = [
   '<meta property="og:description" content="説明">',
   '<meta property="og:site_name" content="Example Channel | Invidious">',
   '</head><body><script id="video_data" type="application/json">{"id":"abcdefghijk","length_seconds":93}</script>',
-  '<div id="player-container"><video id="player"></video></div>',
+  '<div id="player-container"><video id="player"><source src="/latest_version?id=abcdefghijk&amp;itag=18" type="video/mp4" label="360p" selected="true"></video></div>',
   '<a href="/channel/UCaaaaaaaaaaaaaaaaaaaaaa">Example Channel</a>',
   '</body></html>'
 ].join('');
@@ -68,11 +68,57 @@ test('rejects an arbitrary homepage without results', () => {
   assert.throws(() => parseListing('<html><body>hello</body></html>'));
 });
 
-test('parses watch HTML only when it contains the requested video player', () => {
-  assert.equal(parseWatch(watchHTML, 'abcdefghijk').title, '動画テスト');
-  assert.equal(parseWatch(watchHTML, 'abcdefghijk').lengthSeconds, 93);
-  assert.throws(() => parseWatch(watchHTML, 'xxxxxxxxxxx'), /再生可能/);
-  assert.throws(() => parseWatch('<html>fake</html>', 'abcdefghijk'), /再生可能/);
+test('extracts progressive HTML5 video sources from the normal watch page', () => {
+  const data = parseWatch(watchHTML, 'abcdefghijk');
+  assert.equal(data.title, '動画テスト');
+  assert.equal(data.lengthSeconds, 93);
+  assert.equal(data.formatStreams.length, 1);
+  assert.equal(data.formatStreams[0].url, '/latest_version?id=abcdefghijk&itag=18');
+  assert.equal(data.formatStreams[0].type, 'video/mp4');
+  assert.throws(() => parseWatch(watchHTML, 'xxxxxxxxxxx'), /動画ページ/);
+  assert.throws(() => parseWatch('<html>fake</html>', 'abcdefghijk'), /動画ページ/);
+});
+
+test('rejects HTML watch pages without a playable HTML5 source', () => {
+  const unplayable = watchHTML.replace(/<source[^>]+>/, '');
+  assert.throws(() => parseWatch(unplayable, 'abcdefghijk'), /再生ソース/);
+});
+
+test('prevents an external or unrelated source from being used by the player', () => {
+  const foreign = watchHTML.replace(
+    '/latest_version?id=abcdefghijk&amp;itag=18',
+    'https://untrusted.example/latest_version?id=abcdefghijk&amp;itag=18'
+  );
+  assert.throws(() => parseWatch(foreign, 'abcdefghijk'), /再生ソース/);
+  const mismatched = watchHTML.replace('id=abcdefghijk&amp;itag=18', 'id=different12&amp;itag=18');
+  assert.throws(() => parseWatch(mismatched, 'abcdefghijk'), /再生ソース/);
+});
+
+test('resolves media URLs against the fastest valid Invidious instance', async () => {
+  const cluster = new InvidiousCluster({
+    instances: [a,b],
+    fetchImpl: mockFetch({
+      delays: { [a]: 70, [b]: 3 },
+      pageHTML: watchHTML
+    })
+  });
+  const result = await cluster.getVideo('abcdefghijk');
+  assert.equal(result.instance, b);
+  assert.equal(result.data.formatStreams[0].url, b + '/latest_version?id=abcdefghijk&itag=18');
+});
+
+test('refetches the watch HTML when manually switching to another configured instance', async () => {
+  const cluster = new InvidiousCluster({
+    instances: [a,b],
+    fetchImpl: mockFetch({ pageHTML: watchHTML })
+  });
+  const response = await cluster.getVideo('abcdefghijk', a);
+  assert.equal(response.instance, a);
+  assert.equal(response.data.formatStreams[0].url.startsWith(a + '/latest_version'), true);
+  await assert.rejects(
+    () => cluster.getVideo('abcdefghijk', 'https://untrusted.example'),
+    /許可されていない/
+  );
 });
 
 test('parses channel HTML and its videos', () => {

@@ -65,11 +65,16 @@ app.get('/cat/trending', wrap(async (req, res) => {
 app.get('/cat/videos/:id', wrap(async (req, res) => {
   const id = req.params.id;
   if (!VIDEO_ID.test(id)) return res.status(400).json({ error: '不正な動画 ID' });
+  const requestedInstance = typeof req.query.instance === 'string' ? req.query.instance : null;
   try {
-    const result = await cluster.getVideo(id);
-    res.json({ ...result, videoServers: [result.instance, ...cluster.videoServers().filter(x => x !== result.instance)] });
+    // Omitted instance races all backends. With an instance, fetch fresh HTML
+    // from that one only, then extract *its own* HTML5 <video> source URLs.
+    const result = await cluster.getVideo(id, requestedInstance);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...result, player: 'html5', videoServers: [result.instance, ...cluster.videoServers().filter(x => x !== result.instance)] });
   } catch (error) {
-    // A video ID alone is enough to attempt Invidious /embed/id, even when metadata HTML is blocked.
+    // Explicit server switches must fail so the client can try another instance.
+    if (requestedInstance) throw error;
     const servers = cluster.videoServers();
     res.json({
       instance: servers[0],
@@ -77,9 +82,12 @@ app.get('/cat/videos/:id', wrap(async (req, res) => {
       latencyMs: null,
       cached: false,
       fallback: true,
-      warning: '動画ページの情報を取得できませんでした。埋め込み再生のみ試行できます。',
-      data: { videoId: id, title: '動画 ' + id, author: '情報を取得できません',
-        description: '', lengthSeconds: 0, formatStreams: [], recommendedVideos: [] }
+      player: 'html5',
+      warning: '動画ページから HTML5 再生ソースを取得できません。接続先サーバーを変更して再試行してください。',
+      data: {
+        videoId: id, title: '動画 ' + id, author: '情報を取得できません',
+        description: '', lengthSeconds: 0, formatStreams: [], recommendedVideos: []
+      }
     });
   }
 }));

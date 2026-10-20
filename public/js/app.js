@@ -47,31 +47,99 @@
       '<span>ページ '+page+'</span><a class="page-button" href="#/search?q='+encodeURIComponent(q)+'&page='+(page+1)+'">次へ </a></div>';
     }catch(e){if(token===epoch)fail(e);}
   }
-  function validStream(format){try{const u=new URL(format.url);return u.protocol==='https:'&&/^video\//.test(format.type||'')?u.href:'';}catch{return '';}}
-  function embedUrl(){return selectedServer+'/embed/'+videoId(activeVideo.videoId)+'?local=true';}
-  function player(){
-    if(!activeVideo)return '';
-    const stream=(activeVideo.formatStreams||[]).map(validStream).find(Boolean);
-    if(playerMode==='youtube')return '<iframe class="video-element" src="https://www.youtube-nocookie.com/embed/'+videoId(activeVideo.videoId)+'" title="動画を再生" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';if(playerMode==='direct'&&stream)return '<video class="video-element" controls autoplay playsinline poster="'+esc(thumb(activeVideo.videoId,selectedServer))+'" src="'+esc(stream)+'"></video>';
-    return '<iframe class="video-element" src="'+esc(embedUrl())+'" title="'+esc(activeVideo.title)+'" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+  let switchingVideoServer = false;
+  let failedVideoServers = new Set();
+
+  function watchUrl() {
+    return selectedServer + '/watch?v=' + videoId(activeVideo?.videoId);
   }
-  function updatePlayer(){const el=document.querySelector('#videoPlayer');if(el)el.innerHTML=player();const label=document.querySelector('#currentInstance');if(label)label.textContent=new URL(selectedServer).host;document.querySelectorAll('[data-mode]').forEach(el=>el.classList.toggle('selected',el.dataset.mode===playerMode));const external=document.querySelector('#externalPlayer');if(external)external.href=embedUrl();}
+  function validStream(format) {
+    try {
+      const url = new URL(format.url);
+      const origin = new URL(selectedServer).origin;
+      const id = videoId(activeVideo?.videoId);
+      return url.protocol === 'https:' && url.origin === origin &&
+        ['/latest_version', '/videoplayback'].includes(url.pathname) &&
+        url.searchParams.get('id') === id &&
+        /^(video\/mp4|video\/webm|video\/ogg|application\/vnd\.apple\.mpegurl|application\/x-mpegurl)$/.test(format.type || '')
+        ? url.href : '';
+    } catch { return ''; }
+  }
+  function player() {
+    if (!activeVideo) return '';
+    const sources = (activeVideo.formatStreams || []).map(format => {
+      const src = validStream(format);
+      return src ? '<source src="' + esc(src) + '" type="' + esc(format.type) + '">' : '';
+    }).filter(Boolean);
+    if (!sources.length) {
+      return '<div class="video-unavailable"><strong>HTML5 動画の再生ソースを取得できませんでした</strong>' +
+        '<p>別の Invidious サーバーから再生 URL を取得してください。</p>' +
+        '<button class="primary-button" data-action="next-server">別サーバーを試す</button></div>';
+    }
+    return '<video id="nativePlayer" class="video-element" controls playsinline preload="metadata" ' +
+      'poster="' + esc(thumb(activeVideo.videoId, selectedServer)) + '" ' +
+      'aria-label="' + esc(activeVideo.title) + '">' + sources.join('') +
+      'このブラウザは HTML5 video をサポートしていません。</video>';
+  }
+  function updatePlayer() {
+    const target = document.querySelector('#videoPlayer');
+    if (target) target.innerHTML = player();
+    const label = document.querySelector('#currentInstance');
+    if (label) label.textContent = selectedServer ? new URL(selectedServer).host : '未選択';
+    const external = document.querySelector('#externalPlayer');
+    if (external && selectedServer) external.href = watchUrl();
+  }
+  async function nextVideoServer(auto = false) {
+    if (switchingVideoServer || !activeVideo) return;
+    const id = videoId(activeVideo.videoId);
+    const currentEpoch = epoch;
+    const options = videoServers.filter(url => url !== selectedServer && !failedVideoServers.has(url));
+    if (!options.length) {
+      toast('試せる Invidious サーバーがありません');
+      return;
+    }
+    switchingVideoServer = true;
+    const label = document.querySelector('#currentInstance');
+    if (label) label.textContent = '別サーバーから取得中';
+    try {
+      for (const server of options) {
+        try {
+          const result = await request('/cat/videos/' + id + '?instance=' + encodeURIComponent(server));
+          if (currentEpoch !== epoch || activeVideo?.videoId !== id) return;
+          if (!(result.data?.formatStreams || []).length) throw new Error('再生ソースがありません');
+          selectedServer = result.instance;
+          activeVideo = { ...activeVideo, ...result.data };
+          failedVideoServers.add(server); // Do not loop forever if playback later fails.
+          updatePlayer();
+          toast('HTML5 再生先を変更しました: ' + new URL(server).host);
+          return;
+        } catch (error) {
+          failedVideoServers.add(server);
+        }
+      }
+      if (currentEpoch === epoch) {
+        if (label) label.textContent = '再生できるサーバーなし';
+        toast('他のサーバーからも HTML5 再生ソースを取得できませんでした');
+      }
+    } finally {
+      switchingVideoServer = false;
+    }
+  }
   async function watch(id){
-    nav('');skeleton('動画を準備中');const token=++epoch;activeVideo=null;
-    try{const result=await request('/cat/videos/'+id);if(token!==epoch)return;useServer(result);activeVideo=result.data;playerMode='embed';
+    nav('');skeleton('動画を準備中');const token=++epoch;activeVideo=null;switchingVideoServer=false;failedVideoServers=new Set();
+    try{const result=await request('/cat/videos/'+id);if(token!==epoch)return;useServer(result);activeVideo=result.data;
       videoServers=(result.videoServers||[result.instance,...lastStatus.map(x=>x.url)]).filter((x,i,a)=>x&&a.indexOf(x)===i);
       save('history',[rec(activeVideo),...store('history').filter(x=>x.videoId!==id)].slice(0,60));
-      const v=activeVideo,cid=channelId(v.authorId),related=v.recommendedVideos||[],direct=(v.formatStreams||[]).some(validStream);
+      const v=activeVideo,cid=channelId(v.authorId),related=v.recommendedVideos||[];
       app.innerHTML='<div class="watch-layout"><section class="watch-primary"><div id="videoPlayer" class="player-frame">'+player()+'</div>'+
       '<div class="player-options"><div class="playing-instance"><span class="live-dot"></span> 再生サーバー: <strong id="currentInstance">'+esc(new URL(selectedServer).host)+'</strong></div>'+
-      '<div class="player-actions"><button class="soft-button" data-action="next-server">別サーバーで再生</button><button class="soft-button selected" data-mode="embed">Invidious 再生</button><button class="soft-button" data-mode="youtube">YouTube 公式埋め込み</button>'+
-      (direct?'<button class="soft-button" data-mode="direct">直接再生</button>':'')+'</div></div>'+
+      '<div class="player-actions"><span class="soft-button selected">HTML5 VIDEO</span><button class="soft-button" data-action="next-server">別サーバーで再生</button></div></div>'+
       '<h1 class="watch-title">'+esc(v.title)+'</h1><div class="watch-actions"><div class="watch-channel"><span class="channel-avatar">CT</span><div>'+
       (cid?'<a class="watch-author" href="#/channel/'+cid+'">'+esc(v.author)+'</a>':'<strong>'+esc(v.author)+'</strong>')+
       '<small>'+ (v.subCount?num(v.subCount)+' 人の登録者':'クリエイター')+'</small></div></div>'+
       '<button class="primary-button" data-action="favorite">'+(isFavorite(id)?'保存済み':'お気に入りに保存')+'</button></div>'+
       '<div class="description-box"><strong>'+num(v.viewCount)+' 回視聴 · '+esc(ago(v.published))+'</strong><p>'+esc(String(v.description||'').slice(0,1600))+'</p></div>'+
-      '<p class="watch-note">再生されない場合は「別サーバーで再生」を押してください。<a id="externalPlayer" href="'+esc(embedUrl())+'" target="_blank" rel="noopener noreferrer">Invidious で開く </a></p></section>'+
+      '<p class="watch-note">動画は HTML5 video で再生しています。再生エラー時は他のサーバーから再生ソースを取得します。'+esc(result.warning||'')+'<a id="externalPlayer" href="'+esc(watchUrl())+'" target="_blank" rel="noopener noreferrer">元の Invidious 動画ページを開く</a></p></section>'+
       '<aside class="watch-aside"><div class="aside-title"><span class="eyebrow">UP NEXT</span><h2>次に見る動画</h2></div>'+
       (related.length?related.filter(x=>videoId(x.videoId)).slice(0,20).map(x=>'<a class="related-card" href="#/watch/'+videoId(x.videoId)+'"><div class="related-thumb"><img data-video-id="'+videoId(x.videoId)+'" loading="lazy" src="'+esc(thumb(x.videoId,selectedServer))+'" alt="">'+(x.lengthSeconds?'<span class="duration">'+length(x.lengthSeconds)+'</span>':'')+'</div><div><strong>'+esc(x.title)+'</strong><small>'+esc(x.author)+'</small></div></a>').join(''):'<p class="muted">おすすめ動画がありません</p>')+'</aside></div>';
     }catch(e){if(token===epoch)fail(e);}
@@ -128,13 +196,20 @@
   document.querySelector('#serverButton').addEventListener('click',()=>location.hash='/servers');
   document.addEventListener('click',e=>{
     const el=e.target.closest('[data-action],[data-mode]');if(!el)return;
-    if(el.dataset.mode&&activeVideo){playerMode=el.dataset.mode;updatePlayer();return;}
+    if(el.dataset.mode) return;
     if(el.dataset.action==='retry')route();
-    if(el.dataset.action==='next-server'&&videoServers.length){const i=videoServers.indexOf(selectedServer);selectedServer=videoServers[(i+1)%videoServers.length];playerMode='embed';updatePlayer();toast('動画プレイヤー: '+new URL(selectedServer).host);}
+    if(el.dataset.action==='next-server') nextVideoServer();
     if(el.dataset.action==='favorite'&&activeVideo){const items=store('favorites'),id=activeVideo.videoId,exists=isFavorite(id);save('favorites',exists?items.filter(x=>x.videoId!==id):[rec(activeVideo),...items].slice(0,200));el.textContent=exists?'お気に入りに保存':'保存済み';toast(exists?'削除しました':'お気に入りに追加しました');}
     if(el.dataset.action==='clear'){if(confirm('保存された一覧を削除しますか？')){save(el.dataset.list,[]);library(el.dataset.list);}}
     if(el.dataset.action==='refresh')updateStatus().then(servers);
   });
+  // Native HTML5 video can fail independently from the successful HTML request.
+  document.addEventListener('error', event => {
+    if (!event.target?.matches?.('video#nativePlayer') || !activeVideo) return;
+    failedVideoServers.add(selectedServer);
+    toast('動画ストリームの読み込みに失敗したため別サーバーを試します');
+    nextVideoServer(true);
+  }, true);
   document.addEventListener('error',e=>{const img=e.target;if(img.matches&&img.matches('img[data-video-id]')&&!img.dataset.fallback){img.dataset.fallback='1';img.src='https://i.ytimg.com/vi/'+img.dataset.videoId+'/mqdefault.jpg';}},true);
   window.addEventListener('hashchange',route);
   updateStatus().then(()=>{if(location.hash.startsWith('#/servers'))servers();});
