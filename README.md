@@ -1,47 +1,50 @@
-# Cat Tube
+# Cat Tube 2.0
 
-YouTube Data API v3 + official YouTube embed + optional server-side yt-dlp stream proxy.
-
-## Deploy: Render (recommended)
-
-1. Push this folder to a GitHub repository.
-2. In Render, create **New > Blueprint** and select the repository.
-3. Render reads `render.yaml` and creates the `cat-tube` web service.
-4. Set these environment variables in Render:
-   - `YOUTUBE_API_KEY`
-   - `GOOGLE_CLIENT_ID`
-   - `GOOGLE_CLIENT_SECRET`
-   - `GOOGLE_CALLBACK_URL` = `https://YOUR-RENDER-DOMAIN/auth/google/callback`
-5. Deploy.
-6. In Google Cloud Console, add exactly the same callback URL to the OAuth client under **Authorized redirect URIs**.
-
-## Local
-
-```bash
-cp .env.example .env
-npm install
-npm start
-```
-
-Open `http://localhost:3000`.
+複数の Invidious 公開インスタンスから最速の正常 API 応答を選択する、YouTube 動画検索・視聴サイトです。
 
 ## Features
 
-- YouTube Data API v3 search
-- Video detail/watch page
-- Official YouTube no-cookie embed
-- Direct Stream mode through a backend HTTP proxy using yt-dlp
-- Channel pages
-- YouTube playlist pages
-- Google OAuth login
-- User playlists
-- Download endpoint for content the user is authorized to download
-- Docker / Render deployment
+- Invidious API の並列リクエスト、最速の有効 JSON 応答を自動採用
+- タイムアウト・不正応答・HTTP エラー時のフェイルオーバーと一時クールダウン
+- 短期キャッシュと重複リクエスト共有
+- 急上昇（すべて/音楽/ゲーム/映画）、検索、チャンネル、関連動画
+- 動画再生（Invidious embed、使用可能なら直接再生）と再生先サーバー切替
+- ローカル保存のお気に入り・視聴履歴
+- レスポンシブデザイン、Render Docker 対応
 
-## Important deployment note
+## Run locally
 
-The included JSON file store is intended for a demo/small deployment. Render's default filesystem is ephemeral, so user playlists should not be treated as durable production data. For a real production deployment, move users/playlists/session persistence to Postgres and use a persistent session store.
+Node.js 20+ を使用。
 
-## Legal / platform note
+```bash
+npm install
+npm test
+npm start
+```
 
-Use the stream proxy and download functionality only for videos/content you are authorized to access, process, cache, or download, and in accordance with applicable laws and platform terms. The official embedded player remains the default playback mode.
+http://localhost:3000 にアクセス。
+
+## Render deploy
+
+Render の New > Blueprint から本リポジトリを選択してください。render.yaml を使用して Docker Web Service を作成できます。
+
+環境変数:
+- `INVIDIOUS_INSTANCES`: カンマ区切りの HTTPS インスタンス URL。例: `https://inv.nadeko.net,https://invidious.nerdvpn.de`
+- `INVIDIOUS_TIMEOUT_MS`: 各サーバーのタイムアウト（デフォルト 4500ms）
+- `PORT`: リッスンポート（デフォルト 3000）
+
+API キー・データベース・Google ログインは不要です。
+
+## Endpoints
+
+`GET /healthz`・`GET /api/instances`・`GET /api/trending?type=gaming`・`GET /api/search?q=cat`・`GET /api/videos/:id`・`GET /api/channels/:id`
+
+## Notes
+
+API 応答が最速でも動画再生できるとは限りません。公開 Invidious サーバーでは YouTube によるアクセス制限、地域制限、利用制限などがありえます。「別サーバーで再生」で切り替えてください。
+
+インスタンス一覧は将来変わるため運用時に設定を更新してください。接続先インスタンスには動画 ID 等が送信されます。
+
+公式資料: https://docs.invidious.io/instances/ ・ https://docs.invidious.io/api/
+
+旧 server.js に残っていた別アプリのチャット機能は上書きしてあります。GitHub の過去コミットは保持されます。

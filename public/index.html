@@ -1,31 +1,48 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0f0f0f">
-  <title>Cat Tube</title>
-  <link rel="stylesheet" href="/css/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0e111a">
+<meta name="description" content="Invidious の最速サーバーを自動選択する動画サイト Cat Tube">
+<title>Cat Tube — Find your next favorite.</title>
+<link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="#/"><span class="logo-cat">🐱</span><span>Cat Tube</span></a>
-  <form id="searchForm" class="searchbar"><input id="searchInput" placeholder="検索" autocomplete="off"><button aria-label="検索">⌕</button></form>
-  <div class="top-actions"><a class="icon-btn" href="#/library" title="ライブラリ">▱</a><div id="authArea"></div></div>
-</header>
-<div class="app-shell">
-  <aside class="sidebar">
-    <nav>
-      <a href="#/" class="nav-item">⌂ <span>ホーム</span></a>
-      <a href="#/subscriptions" class="nav-item">◉ <span>登録チャンネル</span></a>
-      <a href="#/library" class="nav-item">▣ <span>ライブラリ</span></a>
-      <a href="#/playlists" class="nav-item">≡ <span>プレイリスト</span></a>
-    </nav>
-    <div class="side-note">Cat Tube は YouTube Data API と公式埋め込みを中心に、必要な場合だけサーバー側の動画ストリームを利用します。</div>
-  </aside>
-  <main id="app" class="content"></main>
+<a href="#/" class="brand"><span class="brand-icon">🐱</span><span>cat<span class="brand-accent">tube</span><small>VIDEO UNIVERSE</small></span></a>
+<form id="searchForm" class="searchbar" role="search">
+<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 5 5"></path></svg>
+<input id="searchInput" maxlength="120" type="search" autocomplete="off" placeholder="動画、チャンネルを検索..." aria-label="動画を検索">
+<kbd>/</kbd><button class="search-submit">検索</button>
+</form>
+<div class="top-right">
+<button id="serverButton" class="server-button" type="button"><span class="live-dot"></span><span id="serverLabel">接続確認中</span></button>
+<a href="#/library/favorites" class="avatar" title="ライブラリ">🐾</a>
 </div>
-<div id="toast" class="toast"></div>
-<script type="module" src="/js/app.js"></script>
+</header>
+<div class="shell">
+<aside class="sidebar">
+<div class="nav-group">
+<div class="nav-caption">DISCOVER</div>
+<a href="#/" data-nav="home" class="nav-link"><span class="nav-symbol">⌂</span> ホーム</a>
+<a href="#/trending/music" data-nav="music" class="nav-link"><span class="nav-symbol">♫</span> 音楽</a>
+<a href="#/trending/gaming" data-nav="gaming" class="nav-link"><span class="nav-symbol">◇</span> ゲーム</a>
+<a href="#/trending/movies" data-nav="movies" class="nav-link"><span class="nav-symbol">▣</span> 映画</a>
+</div>
+<div class="nav-group second-group">
+<div class="nav-caption">YOUR SPACE</div>
+<a href="#/library/favorites" data-nav="favorites" class="nav-link"><span class="nav-symbol">♡</span> お気に入り</a>
+<a href="#/library/history" data-nav="history" class="nav-link"><span class="nav-symbol">◷</span> 視聴履歴</a>
+</div>
+<div class="side-info"><div class="side-info-icon">⚡</div><strong>FASTEST WINS.</strong>
+<p>複数の Invidious サーバーに同時接続。最初に正常応答したサーバーを自動選択します。</p>
+<a href="#/servers">サーバーの状態を見る →</a></div>
+<div class="side-footer">CAT TUBE / INVIDIOUS<br>Built for curious cats.</div>
+</aside>
+<main id="app" class="main-content"><div class="loading-page"><div class="spinner"></div><p>動画を読み込み中...</p></div></main>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script defer src="/js/app.js"></script>
 </body>
 </html>

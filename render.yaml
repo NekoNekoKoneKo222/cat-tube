@@ -8,15 +8,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: YOUTUBE_API_KEY
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
-      - key: GOOGLE_CLIENT_SECRET
-        sync: false
-      - key: GOOGLE_CALLBACK_URL
-        sync: false
-      - key: SESSION_SECRET
-        generateValue: true
-      - key: YTDLP_BIN
-        value: yt-dlp
+      - key: INVIDIOUS_INSTANCES
+        value: https://inv.nadeko.net,https://invidious.nerdvpn.de,https://yt.chocolatemoo53.com,https://invidious.tiekoetter.com
+      - key: INVIDIOUS_TIMEOUT_MS
+        value: "4500"

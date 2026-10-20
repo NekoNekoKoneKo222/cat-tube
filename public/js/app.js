@@ -1,31 +1,128 @@
-const app = document.querySelector('#app');
-const authArea = document.querySelector('#authArea');
-const searchForm = document.querySelector('#searchForm');
-const searchInput = document.querySelector('#searchInput');
-const toast = document.querySelector('#toast');
-let me = null, searchPageToken = null, currentSearch = '';
-
-const esc = s => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const fmt = n => Number(n||0).toLocaleString('ja-JP');
-const ago = iso => { if(!iso)return ''; const d=(Date.now()-new Date(iso))/1000; if(d<60)return `${Math.floor(d)}秒前`; if(d<3600)return `${Math.floor(d/60)}分前`; if(d<86400)return `${Math.floor(d/3600)}時間前`; if(d<2592000)return `${Math.floor(d/86400)}日前`; return new Date(iso).toLocaleDateString('ja-JP'); };
-function showToast(s){toast.textContent=s;toast.style.display='block';clearTimeout(showToast.t);showToast.t=setTimeout(()=>toast.style.display='none',2400)}
-async function api(url, opt){const r=await fetch(url,{credentials:'same-origin',...opt}); if(!r.ok){let j={};try{j=await r.json()}catch{} throw new Error(j.error||await r.text()||`HTTP ${r.status}`)} return r.json()}
-async function loadMe(){ try{me=(await api('/api/me')).user}catch{} renderAuth() }
-function renderAuth(){ if(me){authArea.innerHTML=`<button class="avatar-btn" id="userBtn" title="${esc(me.name)}">${me.picture?`<img src="${esc(me.picture)}">`:'👤'}</button>`; document.querySelector('#userBtn').onclick=()=>logout()} else authArea.innerHTML='<a class="login-btn" href="/auth/google">ログイン</a>'; }
-async function logout(){await fetch('/auth/logout',{method:'POST'});me=null;renderAuth();showToast('ログアウトしました')}
-function videoCard(v){return `<a class="video-card" href="#/watch/${encodeURIComponent(v.id)}"><div class="thumb-wrap"><img loading="lazy" src="${esc(v.thumbnail)}" alt=""><span class="duration">▶</span></div><div class="video-meta"><div class="channel-dot"></div><div><div class="video-title">${esc(v.title)}</div><div class="muted">${esc(v.channelTitle)}<br>${ago(v.publishedAt)}</div></div></div></a>`}
-function grid(items){return `<div class="video-grid">${items.map(videoCard).join('')}</div>`}
-
-async function home(){app.innerHTML=`<section class="hero"><h1>Cat Tube</h1><p>YouTube の動画を検索して、チャンネルやプレイリストを見たり、動画ページでは公式埋め込みとサーバー経由のストリームを切り替えられます。</p><div class="chips"><span class="chip active">おすすめ</span><span class="chip">ゲーム</span><span class="chip">音楽</span><span class="chip">学習</span><span class="chip">ライブ</span></div></section><h2 class="section-title">検索して動画を探そう</h2><div class="empty">上の検索ボックスから YouTube Data API で検索できます。</div>`}
-async function searchPage(q, append=false){ if(!q)return home(); if(!append)searchPageToken=null; app.innerHTML=append?app.innerHTML:`<h1 class="section-title">「${esc(q)}」の検索結果</h1><div id="results" class="video-grid"></div><div class="pagination"><button id="more" class="load-more">さらに読み込む</button></div>`; const data=await api(`/api/search?q=${encodeURIComponent(q)}${searchPageToken?`&pageToken=${encodeURIComponent(searchPageToken)}`:''}`); searchPageToken=data.nextPageToken; const box=document.querySelector('#results'); if(box)box.insertAdjacentHTML('beforeend',data.items.map(videoCard).join('')); const more=document.querySelector('#more'); if(more){more.disabled=!searchPageToken;more.textContent=searchPageToken?'さらに読み込む':'これ以上ありません';more.onclick=()=>searchPage(q,true)} }
-async function watchPage(id){const v=await api(`/api/video/${encodeURIComponent(id)}`); app.innerHTML=`<section class="watch"><div class="player-shell" id="player"><iframe id="embed" src="${esc(v.embedUrl)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div><div class="player-mode"><button class="active" id="modeEmbed">YouTube 埋め込み</button><button id="modeStream">Direct Stream</button></div><div class="notice">Direct Stream は Cat Tube のバックエンドが yt-dlp でストリームURLを取得してプロキシします。動画の利用規約・権利を確認して使用してください。</div><h1 class="watch-title">${esc(v.title)}</h1><div class="watch-channel"><a href="#/channel/${encodeURIComponent(v.channelId)}"><b>${esc(v.channelTitle)}</b></a><span class="muted">${fmt(v.statistics?.viewCount)} 回視聴</span></div><div class="watch-actions"><button id="saveBtn" class="action-btn">＋ プレイリストに保存</button><a class="action-btn" href="/api/download/${encodeURIComponent(id)}" download>⬇ ダウンロード（権利のある動画のみ）</a><a class="action-btn" target="_blank" href="https://www.youtube.com/watch?v=${encodeURIComponent(id)}">YouTubeで開く</a></div><div class="description">${esc(v.description||'説明はありません。')}</div></section>`;
- document.querySelector('#modeStream').onclick=()=>{document.querySelector('#modeStream').classList.add('active');document.querySelector('#modeEmbed').classList.remove('active');document.querySelector('#player').innerHTML=`<video controls autoplay playsinline src="/api/stream/${encodeURIComponent(id)}"></video>`};
- document.querySelector('#modeEmbed').onclick=()=>{document.querySelector('#modeEmbed').classList.add('active');document.querySelector('#modeStream').classList.remove('active');document.querySelector('#player').innerHTML=`<iframe src="${esc(v.embedUrl)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`};
- document.querySelector('#saveBtn').onclick=()=>openPlaylistPicker(v);
-}
-async function channelPage(id){const c=await api(`/api/channel/${encodeURIComponent(id)}`);app.innerHTML=`<section class="channel-banner"><div class="channel-head"><img class="channel-avatar" src="${esc(c.thumbnails?.high?.url||c.thumbnails?.medium?.url||'')}" alt=""><div><div class="channel-name">${esc(c.title)}</div><div class="stats">登録者 ${fmt(c.statistics?.subscriberCount)} ・ ${fmt(c.statistics?.videoCount)} 本</div></div></div><p class="muted">${esc(c.description||'')}</p></section><h2 class="section-title">動画</h2>${grid(c.videos||[])}`}
-async function playlistsPage(){if(!me){app.innerHTML='<div class="login-panel"><h1>プレイリスト</h1><p>自分のプレイリストを保存するにはログインしてください。</p><a class="login-btn" href="/auth/google">Googleでログイン</a></div>';return} const d=await api('/api/playlists'); app.innerHTML=`<div class="row"><h1 class="section-title">プレイリスト</h1><button id="newPl" class="action-btn primary">＋ 新規作成</button></div><div id="pls">${d.playlists.map(p=>`<div class="playlist-card" style="margin-bottom:10px"><div class="row"><b>${esc(p.name)}</b><span class="muted">${p.videos.length} 本</span></div><div class="muted" style="margin-top:8px">${p.videos.slice(0,4).map(v=>esc(v.title)).join(' / ')}</div></div>`).join('')||'<div class="empty">まだプレイリストがありません。</div>'}</div>`;document.querySelector('#newPl').onclick=async()=>{const name=prompt('プレイリスト名');if(!name)return;await api('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});playlistsPage()}}
-async function library(){app.innerHTML=`<div class="login-panel"><h1>ライブラリ</h1><p>ログインするとプレイリスト機能を利用できます。</p>${me?'<a class="action-btn primary" href="#/playlists">プレイリストを見る</a>':'<a class="login-btn" href="/auth/google">Googleでログイン</a>'}</div>`}
-async function openPlaylistPicker(v){if(!me){location.href='/auth/google';return}const d=await api('/api/playlists');const name=prompt(`保存先を入力してください。\n${d.playlists.map(p=>p.name).join(', ')||'プレイリストなし'}`);if(!name)return;let p=d.playlists.find(x=>x.name===name);if(!p)p=await api('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});await api(`/api/playlists/${p.id}/items`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video:{id:v.id,title:v.title,thumbnail:v.thumbnails?.medium?.url||v.thumbnails?.default?.url,channelTitle:v.channelTitle}})});showToast('プレイリストに保存しました')}
-async function router(){const [raw,path1,path2]=location.hash.slice(1).split('/'); try{if(!raw){return home()} if(raw==='search'){return searchPage(decodeURIComponent(path1||''))}if(raw==='watch'){return watchPage(decodeURIComponent(path1))}if(raw==='channel'){return channelPage(decodeURIComponent(path1))}if(raw==='playlists'){return playlistsPage()}if(raw==='library'){return library()}if(raw==='subscriptions'){return library()} return home()}catch(e){app.innerHTML=`<div class="empty">エラー: ${esc(e.message)}</div>`}}
-searchForm.onsubmit=e=>{e.preventDefault();const q=searchInput.value.trim();if(q){location.hash=`#/search/${encodeURIComponent(q)}`}};window.addEventListener('hashchange',router);await loadMe();router();
+'use strict';
+(() => {
+  const app = document.querySelector('#app');
+  const searchInput = document.querySelector('#searchInput');
+  const serverLabel = document.querySelector('#serverLabel');
+  const keys = { favorites:'cattube.favorites.v2', history:'cattube.history.v2' };
+  let epoch = 0, activeVideo = null, selectedServer = '', videoServers = [], playerMode = 'embed', lastStatus = [], toastTimer;
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const videoId = s => /^[\w-]{11}$/.test(s || '') ? s : '';
+  const channelId = s => /^UC[\w-]{22}$/.test(s || '') ? s : '';
+  const num = n => Number(n || 0).toLocaleString('ja-JP');
+  const length = n => { n = Number(n)||0;return (n>=3600 ? Math.floor(n/3600)+':'+String(Math.floor(n%3600/60)).padStart(2,'0') : Math.floor(n/60))+':'+String(n%60).padStart(2,'0'); };
+  const ago = unix => { if (!unix) return ''; const d = Math.max(0,Date.now()/1000-Number(unix));return d<86400?'今日':d<2592000?Math.floor(d/86400)+'日前':d<31536000?Math.floor(d/2592000)+'か月前':Math.floor(d/31536000)+'年前'; };
+  const store = name => { try { const a=JSON.parse(localStorage.getItem(keys[name])||'[]');return Array.isArray(a)?a:[]; } catch {return [];} };
+  const save = (name,items) => {try{localStorage.setItem(keys[name],JSON.stringify(items));}catch{toast('保存できませんでした');}};
+  const rec = v => ({videoId:v.videoId,title:v.title,author:v.author,authorId:v.authorId,viewCount:v.viewCount,published:v.published,lengthSeconds:v.lengthSeconds});
+  const thumb = (id,server) => (server||selectedServer||'https://inv.nadeko.net')+'/vi/'+id+'/mqdefault.jpg';
+  const isFavorite = id => store('favorites').some(v=>v.videoId===id);
+  function toast(msg){const el=document.querySelector('#toast');el.textContent=msg;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),3000);}
+  async function api(url){const r=await fetch(url,{headers:{Accept:'application/json'}});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'通信エラーが発生しました');return data;}
+  function useServer(result){if(!result.instance)return;selectedServer=result.instance;serverLabel.textContent=new URL(selectedServer).host+(result.cached?' · CACHE':' · '+result.latencyMs+'ms');}
+  function nav(name){document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===name));}
+  function skeleton(title){app.innerHTML='<div class="page-heading"><div><span class="eyebrow">CAT TUBE</span><h1>'+esc(title)+'</h1></div></div><div class="skeleton-grid">'+Array(8).fill('<div class="skeleton-card"><div></div><span></span><span></span></div>').join('')+'</div>';}
+  function fail(err){app.innerHTML='<div class="message-panel"><div class="message-icon">☁</div><h2>接続できませんでした</h2><p>'+esc(err.message||err)+'</p><button class="primary-button" data-action="retry">もう一度試す</button><a href="#/servers" class="muted-link">サーバーの状態を見る</a></div>';}
+  function empty(title,note){return '<div class="empty-state"><div>🐈</div><h3>'+esc(title)+'</h3><p>'+esc(note)+'</p></div>';}
+  function card(v,instance){const id=videoId(v.videoId);if(!id)return '';const cid=channelId(v.authorId);return '<article class="video-card"><a class="thumb" href="#/watch/'+id+'"><img loading="lazy" data-video-id="'+id+'" src="'+esc(thumb(id,instance))+'" alt="">'+(v.lengthSeconds?'<span class="duration">'+length(v.lengthSeconds)+'</span>':v.liveNow?'<span class="duration">LIVE</span>':'')+'</a><div class="card-details"><a href="#/watch/'+id+'" class="video-title">'+esc(v.title||'タイトルなし')+'</a><div class="card-meta">'+(cid?'<a href="#/channel/'+cid+'">':'<span>')+esc(v.author||'不明')+(cid?'</a>':'</span>')+'<span>'+[v.viewCount!=null?num(v.viewCount)+' 回視聴':'',ago(v.published)].filter(Boolean).join(' · ')+'</span></div></div></article>';}
+  function grid(items,server){return '<div class="video-grid">'+(items||[]).map(v=>card(v,server)).join('')+'</div>';}
+  function heading(label,title,note){return '<div class="page-heading"><div><span class="eyebrow">'+esc(label)+'</span><h1>'+esc(title)+'</h1>'+(note?'<p>'+esc(note)+'</p>':'')+'</div></div>';}
+  async function home(type='default'){
+    nav(type==='default'?'home':type);skeleton('動画を探す');const token=++epoch;
+    try{const result=await api('/api/trending?type='+encodeURIComponent(type));if(token!==epoch)return;useServer(result);
+      const choices=[['default','すべて'],['music','音楽'],['gaming','ゲーム'],['movies','映画']];
+      app.innerHTML='<div class="hero"><div class="hero-copy"><span class="hero-badge">✦ YOUR WINDOW TO VIDEO</span><h1>好きな動画に、<br><em>もっと自由に。</em></h1><p>動画を見つける、新しい場所。複数の Invidious サーバーから最も速い応答を自動で選択。</p><div class="hero-foot"><span class="live-dot"></span> FASTEST SERVER WINS <span class="hero-line"></span> CAT TUBE 2.0</div></div><div class="hero-art">🐈<span>✳</span></div></div>'+
+      '<div class="section-header"><div><span class="eyebrow">EXPLORE WHAT\'S TRENDING</span><h2>いま注目の動画 ✳</h2></div><span class="result-count">'+(result.data||[]).length+' videos</span></div>'+
+      '<div class="category-row">'+choices.map(([id,name])=>'<a class="category-pill '+(id===type?'selected':'')+'" href="'+(id==='default'?'#/':'#/trending/'+id)+'">'+name+'</a>').join('')+'</div>'+
+      ((result.data||[]).length?grid(result.data,result.instance):empty('まだ動画がありません','別のカテゴリを試してください'));
+    }catch(e){if(token===epoch)fail(e);}
+  }
+  async function search(q,page=1){
+    nav('');skeleton('検索結果');const token=++epoch;
+    try{const result=await api('/api/search?q='+encodeURIComponent(q)+'&page='+page);if(token!==epoch)return;useServer(result);searchInput.value=q;
+      const items=result.data||[], vids=items.filter(x=>videoId(x.videoId)), channels=items.filter(x=>x.type==='channel'&&channelId(x.authorId));
+      app.innerHTML=heading('SEARCH RESULTS','「'+q+'」の検索結果',vids.length+' 本の動画')+
+      (channels.length?'<div class="channels-row">'+channels.slice(0,3).map(x=>'<a class="channel-chip" href="#/channel/'+channelId(x.authorId)+'">🐱 <strong>'+esc(x.author)+'</strong> <small>チャンネルを見る →</small></a>').join('')+'</div>':'')+
+      (vids.length?grid(vids,result.instance):empty('見つかりませんでした','キーワードを変えてください'))+
+      '<div class="pagination">'+(page>1?'<a class="page-button" href="#/search?q='+encodeURIComponent(q)+'&page='+(page-1)+'">← 前へ</a>':'')+
+      '<span>ページ '+page+'</span><a class="page-button" href="#/search?q='+encodeURIComponent(q)+'&page='+(page+1)+'">次へ →</a></div>';
+    }catch(e){if(token===epoch)fail(e);}
+  }
+  function validStream(format){try{const u=new URL(format.url);return u.protocol==='https:'&&/^video\//.test(format.type||'')?u.href:'';}catch{return '';}}
+  function embedUrl(){return selectedServer+'/embed/'+videoId(activeVideo.videoId)+'?local=true';}
+  function player(){
+    if(!activeVideo)return '';
+    const stream=(activeVideo.formatStreams||[]).map(validStream).find(Boolean);
+    if(playerMode==='direct'&&stream)return '<video class="video-element" controls autoplay playsinline poster="'+esc(thumb(activeVideo.videoId,selectedServer))+'" src="'+esc(stream)+'"></video>';
+    return '<iframe class="video-element" src="'+esc(embedUrl())+'" title="'+esc(activeVideo.title)+'" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+  }
+  function updatePlayer(){const el=document.querySelector('#videoPlayer');if(el)el.innerHTML=player();const label=document.querySelector('#currentInstance');if(label)label.textContent=new URL(selectedServer).host;document.querySelectorAll('[data-mode]').forEach(el=>el.classList.toggle('selected',el.dataset.mode===playerMode));const external=document.querySelector('#externalPlayer');if(external)external.href=embedUrl();}
+  async function watch(id){
+    nav('');skeleton('動画を準備中');const token=++epoch;activeVideo=null;
+    try{const result=await api('/api/videos/'+id);if(token!==epoch)return;useServer(result);activeVideo=result.data;playerMode='embed';
+      videoServers=[result.instance,...lastStatus.map(x=>x.url)].filter((x,i,a)=>x&&a.indexOf(x)===i);
+      save('history',[rec(activeVideo),...store('history').filter(x=>x.videoId!==id)].slice(0,60));
+      const v=activeVideo,cid=channelId(v.authorId),related=v.recommendedVideos||[],direct=(v.formatStreams||[]).some(validStream);
+      app.innerHTML='<div class="watch-layout"><section class="watch-primary"><div id="videoPlayer" class="player-frame">'+player()+'</div>'+
+      '<div class="player-options"><div class="playing-instance"><span class="live-dot"></span> 再生サーバー: <strong id="currentInstance">'+esc(new URL(selectedServer).host)+'</strong></div>'+
+      '<div class="player-actions"><button class="soft-button" data-action="next-server">↻ 別サーバーで再生</button><button class="soft-button selected" data-mode="embed">埋め込み</button>'+
+      (direct?'<button class="soft-button" data-mode="direct">直接再生</button>':'')+'</div></div>'+
+      '<h1 class="watch-title">'+esc(v.title)+'</h1><div class="watch-actions"><div class="watch-channel"><span class="channel-avatar">🐱</span><div>'+
+      (cid?'<a class="watch-author" href="#/channel/'+cid+'">'+esc(v.author)+'</a>':'<strong>'+esc(v.author)+'</strong>')+
+      '<small>'+ (v.subCount?num(v.subCount)+' 人の登録者':'クリエイター')+'</small></div></div>'+
+      '<button class="primary-button" data-action="favorite">'+(isFavorite(id)?'♥ 保存済み':'♡ お気に入り')+'</button></div>'+
+      '<div class="description-box"><strong>'+num(v.viewCount)+' 回視聴 · '+esc(ago(v.published))+'</strong><p>'+esc(String(v.description||'').slice(0,1600))+'</p></div>'+
+      '<p class="watch-note">再生されない場合は「別サーバーで再生」を押してください。<a id="externalPlayer" href="'+esc(embedUrl())+'" target="_blank" rel="noopener noreferrer">Invidious で開く ↗</a></p></section>'+
+      '<aside class="watch-aside"><div class="aside-title"><span class="eyebrow">UP NEXT</span><h2>次に見る動画</h2></div>'+
+      (related.length?related.filter(x=>videoId(x.videoId)).slice(0,20).map(x=>'<a class="related-card" href="#/watch/'+videoId(x.videoId)+'"><div class="related-thumb"><img data-video-id="'+videoId(x.videoId)+'" loading="lazy" src="'+esc(thumb(x.videoId,selectedServer))+'" alt="">'+(x.lengthSeconds?'<span class="duration">'+length(x.lengthSeconds)+'</span>':'')+'</div><div><strong>'+esc(x.title)+'</strong><small>'+esc(x.author)+'</small></div></a>').join(''):'<p class="muted">おすすめ動画がありません</p>')+'</aside></div>';
+    }catch(e){if(token===epoch)fail(e);}
+  }
+  async function channel(id){
+    nav('');skeleton('チャンネル');const token=++epoch;
+    try{const result=await api('/api/channels/'+id);if(token!==epoch)return;useServer(result);const v=result.data;
+      app.innerHTML='<div class="channel-banner"></div><div class="channel-header"><span class="big-avatar">🐱</span><div><span class="eyebrow">CREATOR CHANNEL</span><h1>'+esc(v.author)+'</h1><p>'+(v.subCount?num(v.subCount)+' 人の登録者':'')+'</p></div></div>'+
+      '<div class="section-header"><h2>最新の動画</h2></div>'+((v.latestVideos||[]).length?grid(v.latestVideos,result.instance):empty('まだ動画がありません','チャンネルの動画を取得できませんでした'));
+    }catch(e){if(token===epoch)fail(e);}
+  }
+  function library(kind){
+    ++epoch;const name=kind==='history'?'history':'favorites';nav(name);const items=store(name);
+    app.innerHTML=heading('YOUR SPACE',name==='history'?'視聴履歴':'お気に入り',items.length+' 本 · このブラウザに保存')+
+    '<div class="category-row"><a class="category-pill '+(name==='favorites'?'selected':'')+'" href="#/library/favorites">♡ お気に入り</a><a class="category-pill '+(name==='history'?'selected':'')+'" href="#/library/history">◷ 視聴履歴</a>'+
+    (items.length?'<button class="outline-button" data-list="'+name+'" data-action="clear">すべて削除</button>':'')+'</div>'+
+    (items.length?grid(items):empty('まだ動画がありません',name==='history'?'動画を再生すると履歴が残ります':'動画ページでハートを押すと保存されます'));
+  }
+  function servers(){
+    ++epoch;nav('');app.innerHTML=heading('SYSTEM STATUS','サーバーステータス','直近の応答速度と稼働状況')+
+    '<div class="server-explanation"><span>⚡</span><div><strong>FASTEST RESPONSE WINS</strong><p>複数サーバーに同時リクエストし、最も早く有効な応答を返したサーバーを利用します。失敗時は一時的に候補から外します。</p></div></div>'+
+    '<div class="category-row"><button class="outline-button" data-action="refresh">状態を更新 ↻</button></div>'+
+    '<div class="server-grid">'+lastStatus.map(s=>'<article class="server-card"><span class="status-dot '+(s.available?'good':'bad')+'"></span><h3>'+esc(new URL(s.url).host)+'</h3><p>'+(s.available?'リクエスト可能':'再試行まで '+s.cooldownSeconds+' 秒')+'</p><strong>'+(s.latencyMs==null?'未測定':s.latencyMs+'ms')+'</strong></article>').join('')+'</div>';
+  }
+  async function updateStatus(){try{lastStatus=(await api('/api/instances')).instances||[];if(!selectedServer)serverLabel.textContent=lastStatus.length+' サーバー待機中';}catch{serverLabel.textContent='サーバー確認失敗';}}
+  function route(){
+    const raw=location.hash.slice(1)||'/', [path,query='']=raw.split('?'),p=path.split('/').filter(Boolean);
+    window.scrollTo(0,0);
+    if(!p.length)return home();
+    if(p[0]==='trending')return home(['music','gaming','movies'].includes(p[1])?p[1]:'default');
+    if(p[0]==='search'){const a=new URLSearchParams(query),q=(a.get('q')||'').slice(0,120).trim();return q?search(q,Math.min(20,Math.max(1,Number(a.get('page'))||1))):home();}
+    if(p[0]==='watch'&&videoId(p[1]))return watch(p[1]);
+    if(p[0]==='channel'&&channelId(p[1]))return channel(p[1]);
+    if(p[0]==='library')return library(p[1]);
+    if(p[0]==='servers')return servers();
+    ++epoch;app.innerHTML=empty('ページがありません','ホームへ戻ってください');
+  }
+  document.querySelector('#searchForm').addEventListener('submit',e=>{e.preventDefault();const q=searchInput.value.trim();if(q)location.hash='/search?q='+encodeURIComponent(q);});
+  document.addEventListener('keydown',e=>{if(e.key==='/'&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName)){e.preventDefault();searchInput.focus();}});
+  document.querySelector('#serverButton').addEventListener('click',()=>location.hash='/servers');
+  document.addEventListener('click',e=>{
+    const el=e.target.closest('[data-action],[data-mode]');if(!el)return;
+    if(el.dataset.mode&&activeVideo){playerMode=el.dataset.mode;updatePlayer();return;}
+    if(el.dataset.action==='retry')route();
+    if(el.dataset.action==='next-server'&&videoServers.length){const i=videoServers.indexOf(selectedServer);selectedServer=videoServers[(i+1)%videoServers.length];playerMode='embed';updatePlayer();toast('接続先: '+new URL(selectedServer).host);}
+    if(el.dataset.action==='favorite'&&activeVideo){const items=store('favorites'),id=activeVideo.videoId,exists=isFavorite(id);save('favorites',exists?items.filter(x=>x.videoId!==id):[rec(activeVideo),...items].slice(0,200));el.textContent=exists?'♡ お気に入り':'♥ 保存済み';toast(exists?'削除しました':'お気に入りに追加しました');}
+    if(el.dataset.action==='clear'){if(confirm('保存された一覧を削除しますか？')){save(el.dataset.list,[]);library(el.dataset.list);}}
+    if(el.dataset.action==='refresh')updateStatus().then(servers);
+  });
+  document.addEventListener('error',e=>{const img=e.target;if(img.matches&&img.matches('img[data-video-id]')&&!img.dataset.fallback){img.dataset.fallback='1';img.src='https://i.ytimg.com/vi/'+img.dataset.videoId+'/mqdefault.jpg';}},true);
+  window.addEventListener('hashchange',route);
+  updateStatus().then(()=>{if(location.hash.startsWith('#/servers'))servers();});
+  route();
+})();
