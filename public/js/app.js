@@ -4,7 +4,7 @@
   const searchInput = document.querySelector('#searchInput');
   const serverLabel = document.querySelector('#serverLabel');
   const keys = { favorites:'cattube.favorites.v2', history:'cattube.history.v2' };
-  let epoch = 0, activeVideo = null, selectedServer = '', videoServers = [], playerMode = 'embed', lastStatus = [], toastTimer;
+  let epoch = 0, activeVideo = null, selectedServer = '', videoServers = [], lastStatus = [], toastTimer;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const videoId = s => /^[\w-]{11}$/.test(s || '') ? s : '';
   const channelId = s => /^UC[\w-]{22}$/.test(s || '') ? s : '';
@@ -56,11 +56,14 @@
   function validStream(format) {
     try {
       const url = new URL(format.url);
-      const origin = new URL(selectedServer).origin;
       const id = videoId(activeVideo?.videoId);
-      return url.protocol === 'https:' && url.origin === origin &&
+      // Invidious Companion may provide an absolute HTTPS media URL on a
+      // different origin than the HTML page. The backend has already checked
+      // the media path and video ID against the fetched video page.
+      return url.protocol === 'https:' && !url.username && !url.password &&
         ['/latest_version', '/videoplayback'].includes(url.pathname) &&
         url.searchParams.get('id') === id &&
+        (url.origin === new URL(selectedServer).origin || !!url.searchParams.get('check')) &&
         /^(video\/mp4|video\/webm|video\/ogg|application\/vnd\.apple\.mpegurl|application\/x-mpegurl)$/.test(format.type || '')
         ? url.href : '';
     } catch { return ''; }
@@ -73,7 +76,7 @@
     }).filter(Boolean);
     if (!sources.length) {
       return '<div class="video-unavailable"><strong>HTML5 動画の再生ソースを取得できませんでした</strong>' +
-        '<p>別の Invidious サーバーから再生 URL を取得してください。</p>' +
+        '<p>サーバーの動画ページから再生 URL を取得できませんでした。利用可能な配信元がない場合、他のサーバーでも再生できないことがあります。</p>' +
         '<button class="primary-button" data-action="next-server">別サーバーを試す</button></div>';
     }
     return '<video id="nativePlayer" class="video-element" controls playsinline preload="metadata" ' +
@@ -109,7 +112,6 @@
           if (!(result.data?.formatStreams || []).length) throw new Error('再生ソースがありません');
           selectedServer = result.instance;
           activeVideo = { ...activeVideo, ...result.data };
-          failedVideoServers.add(server); // Do not loop forever if playback later fails.
           updatePlayer();
           toast('HTML5 再生先を変更しました: ' + new URL(server).host);
           return;

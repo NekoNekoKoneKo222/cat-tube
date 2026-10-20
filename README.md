@@ -1,4 +1,4 @@
-# Cat Tube 3.1 - Invidious HTML + HTML5 video
+# Cat Tube 3.2 - Invidious HTML + HTML5 video
 
 Cat Tube は Invidious の通常の HTML ページを読み取る動画サイトです。Invidious の JSON API（/api/v1）も YouTube Data API も使用しません。
 
@@ -52,3 +52,17 @@ render.yaml に対応しています。カスタムインスタンスを設定�
 - GET /cat/channels/CHANNEL_ID
 
 内部の /cat エンドポイントは Cat Tube 自身のサーバーです。外部の Invidious JSON API を呼び出すものではありません。
+
+## HTML5 動画ソースの取得と復旧（3.2）
+
+Cat Tube は Invidious の通常の HTML を取得して解析します。JSON メタデータ API は不要です。
+
+動画再生では以下の順番で試みます。
+
+1. 複数の公開 Invidious サーバーの `/watch?v=VIDEO_ID` を並列取得。
+2. 各ページに HTML5 の再生ソースがない場合、そのサーバーの `/embed/VIDEO_ID` の HTML を確認。
+3. 最も早く有効な再生ソースを返したサーバーを選択。
+4. 通常の `/latest_version` に加え、Invidious Companion が発行した署名付き HTTPS `/latest_version` をサポート。URL 内の動画 ID を検証してからブラウザの HTML5 `<video>` に渡します。
+5. 再生失敗時は別の接続先からソースを取得し直します。
+
+**注意:** Companion サーバーの配信 URL は HTML ページ側のホストと異なる場合があります。動画の通信は選択された配信元へブラウザから行い、Cat Tube のバックエンドは動画バイト列をプロキシしません。配信元のアクセス制限や一時的な障害がある場合は、そのまま再生できない可能性があります。

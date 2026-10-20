@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  InvidiousCluster, instanceList, parseListing, parseWatch, parseChannel
+  InvidiousCluster, instanceList, parseListing, parseWatch, parseEmbed, parseChannel
 } = require('../lib/invidious');
 
 const a = 'https://inv.nadeko.net';
@@ -119,6 +119,67 @@ test('refetches the watch HTML when manually switching to another configured ins
     () => cluster.getVideo('abcdefghijk', 'https://untrusted.example'),
     /許可されていない/
   );
+});
+
+test('accepts a signed absolute HTTPS source from an Invidious Companion', async () => {
+  const signed = watchHTML.replace(
+    '/latest_version?id=abcdefghijk&amp;itag=18',
+    'https://companion.example/latest_version?id=abcdefghijk&amp;itag=18&amp;check=signed-token'
+  );
+  const parsed = parseWatch(signed, 'abcdefghijk');
+  assert.equal(parsed.formatStreams.length, 1);
+  assert.equal(parsed.formatStreams[0].url, 'https://companion.example/latest_version?id=abcdefghijk&itag=18&check=signed-token');
+  const cluster = new InvidiousCluster({
+    instances: [a],
+    fetchImpl: mockFetch({ pageHTML: signed })
+  });
+  const result = await cluster.getVideo('abcdefghijk');
+  assert.equal(result.data.formatStreams[0].url, 'https://companion.example/latest_version?id=abcdefghijk&itag=18&check=signed-token');
+});
+
+test('rejects insecure HTTP Companion URLs and unrelated video IDs', () => {
+  const insecure = watchHTML.replace(
+    '/latest_version?id=abcdefghijk&amp;itag=18',
+    'http://companion.example/latest_version?id=abcdefghijk&amp;itag=18'
+  );
+  assert.throws(() => parseWatch(insecure,'abcdefghijk'), /再生ソース/);
+  const wrong = watchHTML.replace(
+    '/latest_version?id=abcdefghijk&amp;itag=18',
+    'https://companion.example/latest_version?id=xxxxxxxxxxx&amp;itag=18'
+  );
+  assert.throws(() => parseWatch(wrong,'abcdefghijk'), /再生ソース/);
+});
+
+test('falls back to the normal Invidious embed HTML when watch has no sources', async () => {
+  const embed = watchHTML
+    .replace('<div id="player-container">', '<div class="player-wrap">')
+    .replace('<meta property="og:title" content="動画テスト">', '<title>動画テスト - Invidious</title>');
+  assert.equal(parseEmbed(embed,'abcdefghijk').formatStreams.length,1);
+  const noSource = watchHTML.replace(/<source[^>]*>/,'');
+  const cluster = new InvidiousCluster({
+    instances: [a],
+    fetchImpl: mockFetch({ pageHTML: url => url.includes('/embed/') ? embed : noSource })
+  });
+  const result = await cluster.getVideo('abcdefghijk');
+  assert.equal(result.instance, a);
+  assert.equal(result.data.sourcePage, 'embed');
+  assert.equal(result.data.formatStreams[0].url, a + '/latest_version?id=abcdefghijk&itag=18');
+});
+
+test('falls back per instance and still chooses the fastest valid HTML5 source', async () => {
+  const noSource = watchHTML.replace(/<source[^>]*>/,'');
+  const fetcher = (url, opts) => {
+    const origin = new URL(url).origin;
+    const isEmbed = url.includes('/embed/');
+    const html = isEmbed || origin === b ? watchHTML : noSource;
+    return mockFetch({
+      delays: { [a]: 2, [b]: 9 },
+      pageHTML: html
+    })(url,opts);
+  };
+  const cluster = new InvidiousCluster({ instances:[a,b],fetchImpl:fetcher });
+  const result = await cluster.getVideo('abcdefghijk');
+  assert.equal(result.instance, a);
 });
 
 test('parses channel HTML and its videos', () => {
