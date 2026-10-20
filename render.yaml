@@ -9,6 +9,6 @@ services:
       - key: NODE_ENV
         value: production
       - key: INVIDIOUS_INSTANCES
-        value: https://inv.nadeko.net,https://invidious.nerdvpn.de,https://yt.chocolatemoo53.com,https://invidious.tiekoetter.com
+        value: https://inv.nadeko.net,https://invidious.nerdvpn.de,https://yt.chocolatemoo53.com,https://invidious.tiekoetter.com,https://invidious.f5.si
       - key: INVIDIOUS_TIMEOUT_MS
         value: "4500"

@@ -1,64 +1,74 @@
 'use strict';
-
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { InvidiousCluster, instanceList } = require('../lib/invidious');
+const a = 'https://inv.nadeko.net', b = 'https://invidious.nerdvpn.de';
 
 function fakeFetch(delays, failures = []) {
-  return (url, { signal }) => new Promise((resolve, reject) => {
+  return (url, { signal, method }) => new Promise((resolve, reject) => {
     const origin = new URL(url).origin;
-    const delay = delays[origin] ?? 10;
     const timer = setTimeout(() => {
-      if (failures.includes(origin)) return resolve({
-        ok: false, status: 503, headers: { get: () => null }
-      });
+      const status = failures.includes(origin) && method !== 'HEAD' ? 403 : 200;
       resolve({
-        ok: true, status: 200, headers: { get: () => null },
+        status, ok: status === 200,
+        headers: { get: () => null },
         text: async () => JSON.stringify([{ videoId: 'abcdefghijk', title: origin }])
       });
-    }, delay);
+    }, delays[origin] ?? 5);
     signal.addEventListener('abort', () => {
       clearTimeout(timer);
-      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+      reject(new Error('Aborted'));
     }, { once: true });
   });
 }
 
-const a = 'https://inv.nadeko.net';
-const b = 'https://invidious.nerdvpn.de';
-
-test('selects the first valid response, not the first configured instance', async () => {
-  const cluster = new InvidiousCluster({ instances: [a, b], fetchImpl: fakeFetch({ [a]: 70, [b]: 5 }) });
-  const result = await cluster.get('/api/v1/trending?region=JP', Array.isArray);
-  assert.equal(result.instance, b);
-  assert.equal(result.data[0].title, b);
-  assert.equal(cluster.nodes[0].failures, 0); // aborted losers must not be penalized
+test('uses fastest valid response rather than configured order', async () => {
+  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:70,[b]:5})});
+  const result = await c.get('/api/v1/trending', Array.isArray);
+  assert.equal(result.instance,b);
+  assert.equal(c.nodes[0].apiStatus,'unchecked');
 });
-
-test('fails over to a working instance', async () => {
-  const cluster = new InvidiousCluster({ instances: [a, b], fetchImpl: fakeFetch({ [a]: 1, [b]: 9 }, [a]) });
-  const result = await cluster.get('/api/v1/trending', Array.isArray);
-  assert.equal(result.instance, b);
-  assert.ok(cluster.nodes[0].blockedUntil > Date.now());
+test('fails over and records latency and reason for a failed API', async () => {
+  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:1,[b]:10},[a])});
+  const result = await c.get('/api/v1/trending',Array.isArray);
+  assert.equal(result.instance,b);
+  assert.equal(c.nodes[0].apiStatus,'error');
+  assert.equal(c.nodes[0].httpStatus,403);
+  assert.ok(Number.isFinite(c.nodes[0].latencyMs));
 });
-
-test('returns cached results without another fetch', async () => {
-  let calls = 0;
-  const cluster = new InvidiousCluster({
-    instances: [a],
-    fetchImpl: (...args) => { calls += 1; return fakeFetch({ [a]: 2 })(...args); }
-  });
-  await cluster.get('/api/v1/trending', Array.isArray);
-  const result = await cluster.get('/api/v1/trending', Array.isArray);
-  assert.equal(calls, 1);
-  assert.equal(result.cached, true);
+test('probes every website and API even if API is disabled', async () => {
+  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:1,[b]:1},[a,b])});
+  const statuses = await c.probeAll();
+  assert.equal(statuses.length,2);
+  for (const s of statuses) {
+    assert.equal(s.apiStatus,'error');
+    assert.equal(s.websiteStatus,'ok');
+    assert.equal(s.httpStatus,403);
+    assert.ok(Number.isFinite(s.latencyMs));
+    assert.equal(s.available,false);
+  }
 });
-
-test('requires valid origins and blocks paths and credentials', () => {
-  assert.deepEqual(instanceList([a, a, 'https://user:pass@example.com', 'https://example.com/private', 'file:///tmp']), [a]);
+test('does not re-probe immediately by default', async () => {
+  let calls=0;
+  const f=fakeFetch({[a]:1});
+  const c=new InvidiousCluster({instances:[a],fetchImpl:(...args)=>{calls++;return f(...args);}});
+  await c.probeAll();
+  await c.probeAll();
+  assert.equal(calls,2);
 });
-
-test('rejects when every backend fails', async () => {
-  const cluster = new InvidiousCluster({ instances: [a], fetchImpl: fakeFetch({ [a]: 1 }, [a]) });
-  await assert.rejects(() => cluster.get('/api/v1/trending', Array.isArray), /すべての/);
+test('caches successful results', async () => {
+  let calls=0;
+  const f=fakeFetch({[a]:1});
+  const c=new InvidiousCluster({instances:[a],fetchImpl:(...args)=>{calls++;return f(...args);}});
+  await c.get('/api/v1/trending',Array.isArray);
+  assert.equal((await c.get('/api/v1/trending',Array.isArray)).cached,true);
+  assert.equal(calls,1);
+});
+test('rejects all unavailable APIs and does not falsely report available', async () => {
+  const c=new InvidiousCluster({instances:[a],fetchImpl:fakeFetch({[a]:1},[a])});
+  await assert.rejects(()=>c.get('/api/v1/trending',Array.isArray),/利用可能な/);
+  assert.equal(c.status()[0].available,false);
+});
+test('normalizes and validates trusted HTTPS origins', () => {
+  assert.deepEqual(instanceList([a,a,'file:///tmp','https://user:pw@example.org','https://example.org/hidden']),[a]);
 });
