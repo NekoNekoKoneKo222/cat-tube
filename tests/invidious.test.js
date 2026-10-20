@@ -1,20 +1,48 @@
 'use strict';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { InvidiousCluster, instanceList } = require('../lib/invidious');
-const a = 'https://inv.nadeko.net', b = 'https://invidious.nerdvpn.de';
+const {
+  InvidiousCluster, instanceList, parseListing, parseWatch, parseChannel
+} = require('../lib/invidious');
 
-function fakeFetch(delays, failures = []) {
-  return (url, { signal, method }) => new Promise((resolve, reject) => {
-    const origin = new URL(url).origin;
+const a = 'https://inv.nadeko.net';
+const b = 'https://invidious.nerdvpn.de';
+const card = [
+  '<div class="pure-g">',
+  '<div class="pure-u-1 pure-u-md-1-4"><div class="h-box">',
+  '<div class="thumbnail"><a href="/watch?v=abcdefghijk"><img class="thumbnail" src="/vi/abcdefghijk/mqdefault.jpg"></a>',
+  '<div class="bottom-right-overlay"><p class="length">12:34</p></div></div>',
+  '<div class="video-card-row"><a href="/watch?v=abcdefghijk"><p>猫の動画 &amp; テスト</p></a></div>',
+  '<div class="video-card-row flexible"><a href="/channel/UCaaaaaaaaaaaaaaaaaaaaaa"><p class="channel-name">Example Channel</p></a></div>',
+  '<div class="video-card-row flexible"><p class="video-data">23,456 views</p></div>',
+  '</div></div></div>'
+].join('');
+const searchHTML = '<html><head><title>Search - Invidious</title></head><body>' + card + '</body></html>';
+const watchHTML = [
+  '<html><head>',
+  '<meta property="og:title" content="動画テスト">',
+  '<meta property="og:description" content="説明">',
+  '<meta property="og:site_name" content="Example Channel | Invidious">',
+  '</head><body><script id="video_data" type="application/json">{"id":"abcdefghijk","length_seconds":93}</script>',
+  '<div id="player-container"><video id="player"></video></div>',
+  '<a href="/channel/UCaaaaaaaaaaaaaaaaaaaaaa">Example Channel</a>',
+  '</body></html>'
+].join('');
+const channelHTML = '<html><head><meta property="og:title" content="Example Channel"></head><body>' + card + '</body></html>';
+const invalidHTML = '<!doctype html><html><title>Just a moment...</title><body>Cloudflare</body></html>';
+
+function mockFetch({ delays = {}, failures = {}, pageHTML = searchHTML } = {}) {
+  return (uri, { signal }) => new Promise((resolve, reject) => {
+    const host = new URL(uri).origin;
     const timer = setTimeout(() => {
-      const status = failures.includes(origin) && method !== 'HEAD' ? 403 : 200;
+      const status = failures[host] || 200;
       resolve({
-        status, ok: status === 200,
-        headers: { get: () => null },
-        text: async () => JSON.stringify([{ videoId: 'abcdefghijk', title: origin }])
+        ok: status === 200, status,
+        headers: { get: key => key === 'content-type' ? 'text/html' : null },
+        text: async () => typeof pageHTML === 'function' ? pageHTML(uri) : pageHTML
       });
-    }, delays[origin] ?? 5);
+    }, delays[host] ?? 4);
     signal.addEventListener('abort', () => {
       clearTimeout(timer);
       reject(new Error('Aborted'));
@@ -22,53 +50,98 @@ function fakeFetch(delays, failures = []) {
   });
 }
 
-test('uses fastest valid response rather than configured order', async () => {
-  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:70,[b]:5})});
-  const result = await c.get('/api/v1/trending', Array.isArray);
-  assert.equal(result.instance,b);
-  assert.equal(c.nodes[0].apiStatus,'unchecked');
+test('parses Invidious search HTML into actual video cards', () => {
+  const result = parseListing(searchHTML);
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0], {
+    type: 'video', videoId: 'abcdefghijk', title: '猫の動画 & テスト',
+    author: 'Example Channel', authorId: 'UCaaaaaaaaaaaaaaaaaaaaaa',
+    lengthSeconds: 754, viewCount: 23456, published: null
+  });
 });
-test('fails over and records latency and reason for a failed API', async () => {
-  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:1,[b]:10},[a])});
-  const result = await c.get('/api/v1/trending',Array.isArray);
-  assert.equal(result.instance,b);
-  assert.equal(c.nodes[0].apiStatus,'error');
-  assert.equal(c.nodes[0].httpStatus,403);
-  assert.ok(Number.isFinite(c.nodes[0].latencyMs));
+
+test('rejects a challenge page even when HTTP status is 200', () => {
+  assert.throws(() => parseListing(invalidHTML), /エラー|HTML/);
 });
-test('probes every website and API even if API is disabled', async () => {
-  const c = new InvidiousCluster({instances:[a,b],fetchImpl:fakeFetch({[a]:1,[b]:1},[a,b])});
-  const statuses = await c.probeAll();
-  assert.equal(statuses.length,2);
-  for (const s of statuses) {
-    assert.equal(s.apiStatus,'error');
-    assert.equal(s.websiteStatus,'ok');
-    assert.equal(s.httpStatus,403);
-    assert.ok(Number.isFinite(s.latencyMs));
-    assert.equal(s.available,false);
-  }
+
+test('rejects an arbitrary homepage without results', () => {
+  assert.throws(() => parseListing('<html><body>hello</body></html>'));
 });
-test('does not re-probe immediately by default', async () => {
-  let calls=0;
-  const f=fakeFetch({[a]:1});
-  const c=new InvidiousCluster({instances:[a],fetchImpl:(...args)=>{calls++;return f(...args);}});
-  await c.probeAll();
-  await c.probeAll();
-  assert.equal(calls,2);
+
+test('parses watch HTML only when it contains the requested video player', () => {
+  assert.equal(parseWatch(watchHTML, 'abcdefghijk').title, '動画テスト');
+  assert.equal(parseWatch(watchHTML, 'abcdefghijk').lengthSeconds, 93);
+  assert.throws(() => parseWatch(watchHTML, 'xxxxxxxxxxx'), /再生可能/);
+  assert.throws(() => parseWatch('<html>fake</html>', 'abcdefghijk'), /再生可能/);
 });
-test('caches successful results', async () => {
-  let calls=0;
-  const f=fakeFetch({[a]:1});
-  const c=new InvidiousCluster({instances:[a],fetchImpl:(...args)=>{calls++;return f(...args);}});
-  await c.get('/api/v1/trending',Array.isArray);
-  assert.equal((await c.get('/api/v1/trending',Array.isArray)).cached,true);
-  assert.equal(calls,1);
+
+test('parses channel HTML and its videos', () => {
+  const data = parseChannel(channelHTML, 'UCaaaaaaaaaaaaaaaaaaaaaa');
+  assert.equal(data.author, 'Example Channel');
+  assert.equal(data.latestVideos.length, 1);
 });
-test('rejects all unavailable APIs and does not falsely report available', async () => {
-  const c=new InvidiousCluster({instances:[a],fetchImpl:fakeFetch({[a]:1},[a])});
-  await assert.rejects(()=>c.get('/api/v1/trending',Array.isArray),/利用可能な/);
-  assert.equal(c.status()[0].available,false);
+
+test('races actual HTML search responses and selects fastest valid page', async () => {
+  const cluster = new InvidiousCluster({
+    instances: [a, b], fetchImpl: mockFetch({ delays: { [a]: 90, [b]: 5 } })
+  });
+  const response = await cluster.get('/search?q=cats', parseListing);
+  assert.equal(response.instance, b);
+  assert.equal(response.data[0].title, '猫の動画 & テスト');
+  assert.equal(cluster.nodes[0].searchStatus, 'unchecked');
 });
-test('normalizes and validates trusted HTTPS origins', () => {
-  assert.deepEqual(instanceList([a,a,'file:///tmp','https://user:pw@example.org','https://example.org/hidden']),[a]);
+
+test('falls back when the first server has a blocked HTML page', async () => {
+  const cluster = new InvidiousCluster({
+    instances: [a, b],
+    fetchImpl: mockFetch({
+      delays: { [a]: 1, [b]: 12 },
+      pageHTML: url => url.startsWith(a) ? invalidHTML : searchHTML
+    })
+  });
+  const response = await cluster.get('/search?q=cats', parseListing);
+  assert.equal(response.instance, b);
+  const status = cluster.status()[0];
+  assert.equal(status.searchStatus, 'error');
+  assert.equal(status.lastHttpStatus, 200);
+  assert.ok(status.searchLatencyMs != null);
+});
+
+test('reports HTML failures and their elapsed time, not unchecked forever', async () => {
+  const cluster = new InvidiousCluster({
+    instances: [a, b], fetchImpl: mockFetch({ failures: { [a]: 403, [b]: 503 } })
+  });
+  const statuses = await cluster.probeAll();
+  assert.equal(statuses.length, 2);
+  assert.equal(statuses[0].searchStatus, 'error');
+  assert.equal(statuses[0].lastHttpStatus, 403);
+  assert.equal(statuses[1].lastHttpStatus, 503);
+  assert.ok(Number.isFinite(statuses[0].searchLatencyMs));
+  assert.equal(statuses[0].available, false);
+});
+
+test('uses cache for duplicate page searches', async () => {
+  let calls = 0;
+  const fetcher = mockFetch();
+  const cluster = new InvidiousCluster({
+    instances: [a], fetchImpl: (...args) => { calls++; return fetcher(...args); }
+  });
+  await cluster.get('/search?q=cats', parseListing);
+  assert.equal((await cluster.get('/search?q=cats', parseListing)).cached, true);
+  assert.equal(calls, 1);
+});
+
+test('does not allow user-supplied origins with paths or credentials', () => {
+  assert.deepEqual(instanceList([a, a, 'https://a:b@example.org', 'file:///foo', 'https://example.org/evil']), [a]);
+});
+
+test('rejects all failed search pages, without using an Invidious API', async () => {
+  let apiRequestMade = false;
+  const fetcher = (url, opts) => {
+    if (url.includes('/api/v1/')) apiRequestMade = true;
+    return mockFetch({ failures: { [a]: 403 } })(url, opts);
+  };
+  const cluster = new InvidiousCluster({ instances: [a], fetchImpl: fetcher });
+  await assert.rejects(() => cluster.get('/search?q=test', parseListing), /通常ページ/);
+  assert.equal(apiRequestMade, false);
 });

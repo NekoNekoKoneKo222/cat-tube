@@ -1,16 +1,19 @@
 {
   "name": "cat-tube",
-  "version": "2.0.0",
-  "description": "Cat Tube - multi-instance Invidious video viewer",
+  "version": "3.0.0",
+  "description": "Multi-instance HTML-based Invidious viewer",
   "private": true,
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test"
   },
   "dependencies": {
+    "cheerio": "^1.1.2",
     "express": "^5.1.0"
   }
 }
